@@ -7,17 +7,23 @@ class Value:
         self.input_op = None
 
     def __add__(self, other):
-        s = Value(self.value + other.value)
-        s.inputs = [self, other]
-        s.input_op = Value.__add__
-        return s
+        out = Value(self.value + other.value)
+        out.inputs = [self, other]
+        out.input_op = Value.__add__
+        return out
         
     def __mul__(self, other):
-        prod = Value(self.value * other.value)
-        prod.inputs = [self, other]
-        prod.input_op = Value.__mul__
-        return prod
+        out = Value(self.value * other.value)
+        out.inputs = [self, other]
+        out.input_op = Value.__mul__
+        return out
 
+    def relu(self):
+        out = Value(self.value * int(self.value > 0))
+        out.inputs = [self]
+        out.input_op = Value.relu
+        return out
+    
     @staticmethod
     def _backward_add(grad, inputs):
         assert len(inputs) == 2, '__add__ must take 2 operands.'
@@ -28,12 +34,19 @@ class Value:
         assert len(inputs) == 2, '__mul__ must take 2 operands.'
         return [grad * inputs[1].value, grad * inputs[0].value]
 
+    @staticmethod
+    def _backward_relu(grad, inputs):
+        assert len(inputs) == 1, 'relu must take 1 operand.'
+        return [grad * int(inputs[0].value > 0)]
+
     @classmethod
     def _backward_func(cls, func):
         if func == Value.__add__:
             return cls._backward_add
         if func == Value.__mul__:
             return cls._backward_mul
+        if func == Value.relu:
+            return cls._backward_relu
         assert False, f'{func} not supported.'
 
     def backward(self, grad=1):
