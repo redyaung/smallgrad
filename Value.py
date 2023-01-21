@@ -4,7 +4,7 @@ class Value:
 
     def __init__(self, x):
         self.value = np.array(x, dtype=np.float32)
-        self.grad = np.zeros_like(x)
+        self.grad = np.zeros_like(self.value)
         self.inputs = []
         self.input_op = None
         self.cache = None
@@ -32,12 +32,10 @@ class Value:
         return out
 
     def softmax(self, y):
-        assert len(y.shape) == 1 and len(self.value.shape) == 2
         y = np.array(y, dtype=np.int32)
-        assert self.value.shape[:-1] == y.shape
         exp = np.exp(self.value)
-        norm = exp / np.sum(exp, axis=1)[:, np.newaxis]
-        out = Value(np.mean(-np.log(norm[np.arange(y.shape[0]), y])))
+        norm = exp / np.sum(exp, axis=-1, keepdims=True)
+        out = Value(np.mean(-np.log(norm[np.indices(y.shape), y])))
         out.inputs = (self,)
         out.input_op = Value.softmax
         out.cache = (norm, y)
@@ -63,8 +61,8 @@ class Value:
         assert len(inputs) == 1, 'softmax only backprop wrt 1 operand.'
         norm, y = cache
         din = norm
-        din[np.arange(y.shape[0]), y] -= 1.0
-        din /= y.shape[0]
+        din[np.indices(y.shape), y] -= 1.0
+        din /= np.prod(y.shape)
         return [grad * din]
 
     @classmethod
