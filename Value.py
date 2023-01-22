@@ -23,6 +23,22 @@ class Value:
         out.input_op = Value.__mul__
         return out
 
+    def mm(self, other):
+        assert len(self.value.shape) <= 2 and len(other.value.shape) <= 2
+        assert self.value.shape[-1] == other.value.shape[0]
+        assert len(self.value.shape) > 1 or len(other.value.shape) > 1
+        out = Value(self.value @ other.value)
+        out.inputs = (self, other)
+        out.input_op = Value.mm
+        return out
+
+    @property
+    def T(self):
+        out = Value(self.value.T)
+        out.inputs = (self,)
+        out.input_op = Value.T
+        return out
+
     def relu(self):
         mask = (self.value > 0).astype(np.float32)
         out = Value(self.value * mask)
@@ -31,13 +47,13 @@ class Value:
         out.cache = (mask,)
         return out
 
-    def softmax(self, y):
+    def cross_entropy_loss(self, y):
         y = np.array(y, dtype=np.int32)
         exp = np.exp(self.value)
         norm = exp / np.sum(exp, axis=-1, keepdims=True)
         out = Value(np.mean(-np.log(norm[np.indices(y.shape), y])))
         out.inputs = (self,)
-        out.input_op = Value.softmax
+        out.input_op = Value.cross_entropy_loss
         out.cache = (norm, y)
         return out
 
@@ -57,13 +73,28 @@ class Value:
         return [grad * cache[0]]
 
     @staticmethod
-    def _backward_softmax(grad, inputs, cache):
-        assert len(inputs) == 1, 'softmax only backprop wrt 1 operand.'
+    def _backward_cross_entropy_loss(grad, inputs, cache):
+        assert len(inputs) == 1, 'cross_entropy_loss only backprops wrt 1 operand.'
         norm, y = cache
         din = norm
         din[np.indices(y.shape), y] -= 1.0
         din /= np.prod(y.shape)
         return [grad * din]
+
+    @staticmethod
+    def _backward_mm(grad, inputs, cache):
+        assert len(inputs) == 2, 'mm must take 2 operands.'
+        x, y = inputs[0].value, inputs[1].value
+        y_ = np.expand_dims(y, axis=1) if len(y.shape) == 1 else y
+        grad_ = np.expand_dims(grad, axis=1) if len(grad.shape) == 1 else grad
+        dx = np.reshape(grad_ @ y_.T, x.shape)
+        dy = np.reshape(x.T @ grad_, y.shape)
+        return [dx, dy]
+
+    @staticmethod
+    def _backward_T(grad, inputs, cache):
+        assert len(inputs) == 1, 'T must take 1 operand.'
+        return [grad.T]
 
     @classmethod
     def _backward_func(cls, func):
@@ -73,8 +104,12 @@ class Value:
             return cls._backward_mul
         if func == Value.relu:
             return cls._backward_relu
-        if func == Value.softmax:
-            return cls._backward_softmax
+        if func == Value.cross_entropy_loss:
+            return cls._backward_cross_entropy_loss
+        if func == Value.mm:
+            return cls._backward_mm
+        if func == Value.T:
+            return cls._backward_T
         assert False, f'{func} not supported.'
 
     def zero_grad(self):
