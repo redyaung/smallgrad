@@ -10,7 +10,6 @@ class Value:
         self.cache = None
 
     def __add__(self, other):
-        assert self.value.shape == other.value.shape
         out = Value(self.value + other.value)
         out.inputs = (self, other)
         out.input_op = Value.__add__
@@ -48,7 +47,7 @@ class Value:
         return out
 
     def cross_entropy_loss(self, y):
-        y = np.array(y, dtype=np.int32)
+        y = np.array(y, dtype=np.uint32)
         exp = np.exp(self.value)
         norm = exp / np.sum(exp, axis=-1, keepdims=True)
         out = Value(np.mean(-np.log(norm[np.indices(y.shape), y])))
@@ -60,7 +59,9 @@ class Value:
     @staticmethod
     def _backward_add(grad, inputs, cache):
         assert len(inputs) == 2, '__add__ must take 2 operands.'
-        return [grad, grad]
+        vals = [input.value for input in inputs]
+        t = lambda val: np.sum(grad.reshape(-1, *val.shape), axis=0)
+        return [t(val) if val.shape != grad.shape else grad for val in vals]
 
     @staticmethod
     def _backward_mul(grad, inputs, cache):
@@ -113,7 +114,7 @@ class Value:
         assert False, f'{func} not supported.'
 
     def zero_grad(self):
-        self.grad = 0.0
+        self.grad = np.zeros_like(self.grad)
         for input in self.inputs:
             input.zero_grad()
 
@@ -122,6 +123,8 @@ class Value:
         if self.input_op is None:
             return None
         backward_func = Value._backward_func(self.input_op)
-        input_grads = backward_func(grad, self.inputs, self.cache)
+        input_grads = backward_func(self.grad, self.inputs, self.cache)
         for input, input_grad in zip(self.inputs, input_grads):
+            if type(input_grad) == int or type(input_grad) == float:
+                input_grad = np.array(input_grad, dtype=input.dtype)
             input.backward(input_grad)
